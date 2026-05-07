@@ -1,9 +1,4 @@
 // lib/main.dart
-//
-// Entry point. Sets up the Provider and the 3-screen shell:
-//   0 → Klasser & karakterhjul  (grading screen)
-//   1 → Overblik               (distribution overview)
-//   2 → Klager                 (complaints)
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -13,10 +8,19 @@ import 'screens/grading_screen.dart';
 import 'screens/overview_screen.dart';
 import 'screens/complaints_screen.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Load persisted data before the first frame
+  final provider = ClassProvider();
+  await provider.load();
+
+  // If no saved data exists, seed demo students so the app isn't empty
+  provider.seedDemoData();
+
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => ClassProvider()..seedDemoData(),
+    ChangeNotifierProvider.value(
+      value: provider,
       child: const GradeWheelApp(),
     ),
   );
@@ -32,11 +36,10 @@ class GradeWheelApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1A237E), // dark indigo
+          seedColor: const Color(0xFF1A237E),
           brightness: Brightness.light,
         ),
         useMaterial3: true,
-        fontFamily: 'Roboto',
       ),
       home: const AppShell(),
     );
@@ -53,7 +56,6 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _currentIndex = 0;
 
-  // Screens are kept alive when switching tabs
   static const _screens = [
     GradingScreen(),
     OverviewScreen(),
@@ -62,17 +64,11 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _screens,
-      ),
+      body: IndexedStack(index: _currentIndex, children: _screens),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (i) => setState(() => _currentIndex = i),
-        backgroundColor: colorScheme.surface,
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.casino_outlined),

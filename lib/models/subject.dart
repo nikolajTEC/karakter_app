@@ -1,23 +1,22 @@
 // lib/models/subject.dart
-//
-// A subject (fag) shared by all students in a class.
-// Examples: Matematik, Dansk, Engelsk.
 
 class Subject {
   final String id;
   final String name;
 
-  const Subject({
-    required this.id,
-    required this.name,
-  });
+  const Subject({required this.id, required this.name});
 
-  Subject copyWith({String? id, String? name}) {
-    return Subject(
-      id: id ?? this.id,
-      name: name ?? this.name,
-    );
-  }
+  Subject copyWith({String? id, String? name}) =>
+      Subject(id: id ?? this.id, name: name ?? this.name);
+
+  // ── Serialisation ─────────────────────────────────────────────────────────
+
+  Map<String, dynamic> toJson() => {'id': id, 'name': name};
+
+  factory Subject.fromJson(Map<String, dynamic> json) =>
+      Subject(id: json['id'] as String, name: json['name'] as String);
+
+  // ─────────────────────────────────────────────────────────────────────────
 
   @override
   bool operator ==(Object other) =>

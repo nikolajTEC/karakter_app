@@ -1,20 +1,11 @@
 // lib/models/student.dart
-//
-// A student belonging to a SchoolClass.
-// Grades are stored as a map of subjectId -> Grade.
-// A null value means the subject has not been graded yet.
 
 import 'grade.dart';
 
 class Student {
   final String id;
   final String name;
-
-  /// Maps subjectId to the grade given for that subject.
-  /// null = not yet graded.
-  final Map<String, Grade?> grades;
-
-  /// If true, this student has an active complaint being processed.
+  final Map<String, Grade?> grades;   // subjectId → Grade?
   final bool hasActiveComplaint;
 
   const Student({
@@ -29,30 +20,47 @@ class Student {
     String? name,
     Map<String, Grade?>? grades,
     bool? hasActiveComplaint,
-  }) {
-    return Student(
-      id: id ?? this.id,
-      name: name ?? this.name,
-      // Always copy the map to avoid shared mutation
-      grades: grades ?? Map.of(this.grades),
-      hasActiveComplaint: hasActiveComplaint ?? this.hasActiveComplaint,
-    );
-  }
+  }) => Student(
+    id: id ?? this.id,
+    name: name ?? this.name,
+    grades: grades ?? Map.of(this.grades),
+    hasActiveComplaint: hasActiveComplaint ?? this.hasActiveComplaint,
+  );
 
-  /// Returns the grade for a given subject, or null if not yet graded.
   Grade? gradeFor(String subjectId) => grades[subjectId];
 
-  /// Returns true if every subject in [subjectIds] has been graded.
-  bool isFullyGraded(List<String> subjectIds) {
-    return subjectIds.every((id) => grades[id] != null);
-  }
+  bool isFullyGraded(List<String> subjectIds) =>
+      subjectIds.every((id) => grades[id] != null);
 
-  /// Returns a new Student with the grade set for [subjectId].
   Student withGrade(String subjectId, Grade grade) {
     final updated = Map<String, Grade?>.of(grades);
     updated[subjectId] = grade;
     return copyWith(grades: updated);
   }
+
+  // ── Serialisation ─────────────────────────────────────────────────────────
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    // Store grade as its label string, or null
+    'grades': grades.map((k, v) => MapEntry(k, v?.jsonKey)),
+    'hasActiveComplaint': hasActiveComplaint,
+  };
+
+  factory Student.fromJson(Map<String, dynamic> json) {
+    final rawGrades = (json['grades'] as Map<String, dynamic>? ?? {});
+    final grades = rawGrades.map((k, v) =>
+        MapEntry(k, v == null ? null : gradeFromJson(v as String)));
+    return Student(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      grades: grades.cast<String, Grade?>(),
+      hasActiveComplaint: json['hasActiveComplaint'] as bool? ?? false,
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
 
   @override
   bool operator ==(Object other) =>
