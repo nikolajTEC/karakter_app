@@ -1,6 +1,4 @@
 // lib/providers/class_provider.dart
-//
-// FULL provider with gradual shake redistribution
 
 import 'dart:convert';
 import 'dart:math';
@@ -42,9 +40,15 @@ class ClassProvider extends ChangeNotifier {
     final raw = prefs.getString(_storageKey);
 
     if (raw != null) {
-      final list = jsonDecode(raw) as List<dynamic>;
-      _classes =
-          list.map((e) => SchoolClass.fromJson(e as Map<String, dynamic>)).toList();
+      try {
+        final list = jsonDecode(raw) as List<dynamic>;
+        _classes = list
+            .map((e) => SchoolClass.fromJson(e as Map<String, dynamic>))
+            .toList();
+      } catch (e) {
+        debugPrint('Error loading classes: $e');
+        _classes = [];
+      }
     }
 
     _selectedClassId = prefs.getString(_selectedClassKey);
@@ -135,128 +139,157 @@ class ClassProvider extends ChangeNotifier {
   }
 
   // ─────────────────────────────────────────────────────────
-  // SHAKE REDISTRIBUTION (GRADUAL & PHYSICS FRIENDLY)
+  // SHAKE REDISTRIBUTION
   // ─────────────────────────────────────────────────────────
 
-  void redistributeGrades(String classId, String subjectId) {
+void redistributeGrades(String classId, String subjectId) {
   final cls = _classById(classId);
   if (cls == null) return;
 
-  final gradedStudents =
-      cls.students.where((s) => s.gradeFor(subjectId) != null).toList();
-  if (gradedStudents.isEmpty) return;
+  // 1. Get ONLY students who have a grade for this specific subject
+  final candidates = cls.students
+      .where((s) => s.gradeFor(subjectId) != null)
+      .toList();
 
-  final n = gradedStudents.length;
+  if (candidates.isEmpty) return;
 
-  // MAX 10% movement per shake
-  final maxMoves = max(1, (n * 0.10).ceil());
+  final n = candidates.length;
+  final random = Random();
 
-  // current counts
-  final currentCounts = {
-    for (final g in expectedNormalDistribution.keys) g: 0,
+  // 2. Define ideal targets with your requested heavy bias on 7
+  // We use a small epsilon or ensure at least some capacity for the middle grades
+  final Map<Grade, double> idealRatios = {
+    Grade.minusThree: 0.02,
+    Grade.zero:       0.05,
+    Grade.two:        0.10,
+    Grade.four:       0.23, // Increased
+    Grade.seven:      (n > 10) ? 0.35 : 0.40, // Heavy bias
+    Grade.ten:        0.20, // Increased
+    Grade.twelve:     0.05,
   };
 
-  for (final s in gradedStudents) {
+  // 3. Current count for THIS subject
+  final currentCounts = {for (var g in Grade.values) g: 0};
+  for (var s in candidates) {
     final g = s.gradeFor(subjectId)!;
     currentCounts[g] = currentCounts[g]! + 1;
   }
 
-  // target counts (Gaussian expectation)
-  final targetCounts = {
-    for (final g in expectedNormalDistribution.keys)
-      g: (expectedNormalDistribution[g]! * n).round()
-  };
+  // 4. Force 3-5 movements per shake call
+  int movesMade = 0;
+  for (int i = 0; i < 5; i++) {
+    // Find all grades that are currently ABOVE their ideal ratio
+    final overPopulated = Grade.values.where((g) {
+      return currentCounts[g]! > (idealRatios[g]! * n);
+    }).toList();
 
-  int moves = 0;
-  final rand = Random();
+    // Find all grades that are currently BELOW their ideal ratio
+    final underPopulated = Grade.values.where((g) {
+      return currentCounts[g]! < (idealRatios[g]! * n);
+    }).toList();
 
-  // WORKING COPY
-  final workingStudents = gradedStudents.toList();
+    // If we are perfectly balanced, or no one can move, break
+    if (overPopulated.isEmpty || underPopulated.isEmpty) break;
 
-  while (moves < maxMoves) {
-  Grade? fromGrade;
+    // Pick a random source and a random destination (allows "jumping" columns)
+    final fromGrade = overPopulated[random.nextInt(overPopulated.length)];
+    final toGrade = underPopulated[random.nextInt(underPopulated.length)];
 
-  // STRICT: only grades that are OVER target
-  for (final g in allGrades) {
-    if (currentCounts[g]! > targetCounts[g]!) {
-      fromGrade = g;
-      break;
+    final studentPool = candidates.where((s) => s.gradeFor(subjectId) == fromGrade).toList();
+    
+    if (studentPool.isNotEmpty) {
+      final student = studentPool[random.nextInt(studentPool.length)];
+      
+      // Update the student in the list
+      _updateClass(classId, (c) => c.withUpdatedStudent(student.withGrade(subjectId, toGrade)));
+      
+      // Update local tracking for the next iteration of this loop
+      currentCounts[fromGrade] = currentCounts[fromGrade]! - 1;
+      currentCounts[toGrade] = currentCounts[toGrade]! + 1;
+      movesMade++;
     }
   }
-
-  if (fromGrade == null) break;
-
-  final fromIndex = allGrades.indexOf(fromGrade);
-
-  // possible destinations = ONLY underrepresented grades
-  final candidates = <Grade>[];
-
-  if (fromIndex > 0) {
-    final g = allGrades[fromIndex - 1];
-    if (currentCounts[g]! < targetCounts[g]!) {
-      candidates.add(g);
-    }
-  }
-
-  if (fromIndex < allGrades.length - 1) {
-    final g = allGrades[fromIndex + 1];
-    if (currentCounts[g]! < targetCounts[g]!) {
-      candidates.add(g);
-    }
-  }
-
-  if (candidates.isEmpty) {
-    // no valid move → mark as fixed and continue
-    currentCounts[fromGrade] = targetCounts[fromGrade]!;
-    continue;
-  }
-
-  // pick most underrepresented neighbor
-  candidates.sort((a, b) =>
-      (currentCounts[a]! - targetCounts[a]!)
-          .compareTo(currentCounts[b]! - targetCounts[b]!));
-
-  final toGrade = candidates.first;
-
-  final pool = gradedStudents
-      .where((s) => s.gradeFor(subjectId) == fromGrade)
-      .toList();
-
-  if (pool.isEmpty) {
-    currentCounts[fromGrade] = targetCounts[fromGrade]!;
-    continue;
-  }
-
-  final student = pool[Random().nextInt(pool.length)];
-
-  _updateClass(classId, (c) {
-    return c.withUpdatedStudent(
-      student.withGrade(subjectId, toGrade),
-    );
-  });
-
-  currentCounts[fromGrade] = currentCounts[fromGrade]! - 1;
-  currentCounts[toGrade] = currentCounts[toGrade]! + 1;
-
-  moves++;
-}
 }
 
   // ─────────────────────────────────────────────────────────
-  // DEMO DATA
+  // COMPLAINTS
+  // ─────────────────────────────────────────────────────────
+
+  void toggleComplaint(String classId, String studentId) {
+    _updateClass(classId, (c) {
+      final student = c.students.firstWhere((s) => s.id == studentId);
+      return c.withUpdatedStudent(
+        student.copyWith(hasActiveComplaint: !student.hasActiveComplaint),
+      );
+    });
+  }
+
+  void resolveComplaint(String classId, String studentId) {
+    _updateClass(classId, (c) {
+      final student = c.students.firstWhere((s) => s.id == studentId);
+      return c.withUpdatedStudent(
+        student.copyWith(hasActiveComplaint: false),
+      );
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // DEMO DATA (RE-WRITTEN WITH CORRECT ENUMS)
   // ─────────────────────────────────────────────────────────
 
   void seedDemoData() {
     if (_classes.isNotEmpty) return;
 
-    final classA = addClass('3A');
-    addSubject(classA.id, 'Matematik');
-    addSubject(classA.id, 'Dansk');
-    addSubject(classA.id, 'Engelsk');
+    final random = Random();
+    
+    final classId = _uuid.v4();
+    final List<Subject> subjects = [
+      Subject(id: _uuid.v4(), name: 'Matematik'),
+      Subject(id: _uuid.v4(), name: 'Dansk'),
+      Subject(id: _uuid.v4(), name: 'Engelsk'),
+    ];
 
-    for (final name in ['Alice', 'Bob', 'Clara', 'David', 'Eva']) {
-      addStudent(classA.id, name);
+    final names = [
+      'Alice', 'Bob', 'Clara', 'David', 'Eva', 
+      'Felix', 'Greta', 'Hugo', 'Ida', 'Johan',
+      'Kasper', 'Line', 'Mads', 'Nora', 'Oscar'
+    ];
+
+    // Restricting available grades between 00 and 7 based on your enum
+    final availableGrades = [
+      Grade.zero,  // 00
+      Grade.two,   // 02
+      Grade.four,  // 4
+      Grade.seven, // 7
+    ];
+
+    final List<Student> students = [];
+    
+    for (int i = 0; i < names.length; i++) {
+      final Map<String, Grade?> grades = {};
+      
+      for (var sub in subjects) {
+        grades[sub.id] = availableGrades[random.nextInt(availableGrades.length)];
+      }
+
+      students.add(Student(
+        id: _uuid.v4(),
+        name: names[i],
+        grades: grades,
+        hasActiveComplaint: i < 4, // Ensures exactly 4 have complaints
+      ));
     }
+
+    final demoClass = SchoolClass(
+      id: classId,
+      name: '3A',
+      subjects: subjects,
+      students: students,
+    );
+
+    _classes = [demoClass];
+    _selectedClassId = classId;
+    _notify();
   }
 
   // ─────────────────────────────────────────────────────────
