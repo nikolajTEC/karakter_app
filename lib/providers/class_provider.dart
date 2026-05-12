@@ -156,15 +156,15 @@ void redistributeGrades(String classId, String subjectId) {
   final n = candidates.length;
   final random = Random();
 
-  // 2. Define ideal targets with your requested heavy bias on 7
-  // We use a small epsilon or ensure at least some capacity for the middle grades
+  // Target grade
+
   final Map<Grade, double> idealRatios = {
     Grade.minusThree: 0.02,
     Grade.zero:       0.05,
     Grade.two:        0.10,
-    Grade.four:       0.23, // Increased
+    Grade.four:       0.23,
     Grade.seven:      (n > 10) ? 0.35 : 0.40, // Heavy bias
-    Grade.ten:        0.20, // Increased
+    Grade.ten:        0.20,
     Grade.twelve:     0.05,
   };
 
@@ -232,10 +232,6 @@ void redistributeGrades(String classId, String subjectId) {
       );
     });
   }
-
-  // ─────────────────────────────────────────────────────────
-  // DEMO DATA (RE-WRITTEN WITH CORRECT ENUMS)
-  // ─────────────────────────────────────────────────────────
 
   void seedDemoData() {
     if (_classes.isNotEmpty) return;
